@@ -21,7 +21,7 @@ for (let i = 0; i < COUNT; i++) {
 const geometry = new THREE.BufferGeometry();
 geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
 
-const material = new THREE.PointsMaterial({ color: 0x111111, size: 0.12, transparent: true, opacity: 0.35 });
+const material = new THREE.PointsMaterial({ color: 0xf2f2ef, size: 0.1, transparent: true, opacity: 0.28 });
 const points = new THREE.Points(geometry, material);
 scene.add(points);
 

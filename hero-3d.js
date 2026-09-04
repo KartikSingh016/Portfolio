@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 
 const canvas = document.getElementById('hero-3d');
-const wrap = canvas.closest('.orbit');
+// the canvas is sized by CSS, so measure it directly and use it as the pointer target
+const wrap = canvas;
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 // crop a texture to a target box aspect like CSS object-fit:cover
@@ -16,13 +17,14 @@ function coverUV(tex, boxAspect) {
   }
 }
 
-function faceMaterials(url, boxAspect, edgeColor) {
+// tint multiplies the texture — used to sit bright screenshots down into the dark page
+function faceMaterials(url, boxAspect, edgeColor, tint = 0xffffff) {
   const edge = new THREE.MeshStandardMaterial({ color: edgeColor, roughness: 0.85, metalness: 0.05 });
   const tex = new THREE.TextureLoader().load(url, t => {
     t.colorSpace = THREE.SRGBColorSpace;
     coverUV(t, boxAspect);
   });
-  const front = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.7, metalness: 0.05 });
+  const front = new THREE.MeshStandardMaterial({ map: tex, color: tint, roughness: 0.7, metalness: 0.05 });
   // BoxGeometry face order: +x -x +y -y +z -z — photo goes on the +z (front) face
   return [edge, edge, edge, edge, front, edge];
 }
@@ -36,11 +38,11 @@ try {
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-  scene.add(new THREE.AmbientLight(0xffffff, 0.7));
-  const key = new THREE.DirectionalLight(0xffffff, 1.1);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+  const key = new THREE.DirectionalLight(0xffffff, 0.85);
   key.position.set(3, 4, 5);
   scene.add(key);
-  const rim = new THREE.DirectionalLight(0xe11d2e, 0.5);
+  const rim = new THREE.DirectionalLight(0xe11d2e, 0.45);
   rim.position.set(-4, -2, -3);
   scene.add(rim);
 
@@ -49,7 +51,7 @@ try {
   const AVATAR_W = 2.4, AVATAR_H = 2.4 / AVATAR_ASPECT, AVATAR_D = 0.16;
   const avatar = new THREE.Mesh(
     new THREE.BoxGeometry(AVATAR_W, AVATAR_H, AVATAR_D),
-    faceMaterials('assets/avatar-full-body.jpg', AVATAR_ASPECT, 0x111111)
+    faceMaterials('assets/avatar-full-body.jpg', AVATAR_ASPECT, 0x1c1c1c)
   );
   scene.add(avatar);
 
@@ -65,7 +67,7 @@ try {
   const RADIUS_Z = 1.4;   // depth swing, entirely behind the avatar
   const BEHIND_MARGIN = AVATAR_D / 2 + 0.3; // keeps every point strictly behind the avatar's back face
   const cards = PROJECTS.map((url, i) => {
-    const mesh = new THREE.Mesh(cardGeo, faceMaterials(url, AVATAR_ASPECT, 0xfdfdfd));
+    const mesh = new THREE.Mesh(cardGeo, faceMaterials(url, AVATAR_ASPECT, 0x141414, 0x8f8f8f));
     mesh.userData.angle = (i / PROJECTS.length) * Math.PI * 2;
     scene.add(mesh);
     return mesh;
@@ -124,7 +126,9 @@ try {
   }
 } catch (err) {
   console.warn('3D hero unavailable, falling back to a static portrait.', err);
-  canvas.style.display = 'none';
-  wrap.style.background = "url('assets/avatar-full-body.jpg') center / cover";
-  wrap.style.borderRadius = '18px';
+  const img = document.createElement('img');
+  img.src = 'assets/avatar-full-body.jpg';
+  img.alt = 'Kartik Singh';
+  img.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+  canvas.replaceWith(img);
 }
