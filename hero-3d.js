@@ -63,7 +63,7 @@ try {
     'assets/screenshots/job-tracker.jpg',
   ];
   const cardGeo = new THREE.BoxGeometry(AVATAR_W, AVATAR_H, 0.12);
-  const RADIUS_X = 3.3;   // lateral swing — clears the avatar's sides
+  let radiusX = 3.3;      // lateral swing — refit in layout() to reach the frame edges
   const RADIUS_Z = 1.4;   // depth swing, entirely behind the avatar
   const BEHIND_MARGIN = AVATAR_D / 2 + 0.3; // keeps every point strictly behind the avatar's back face
   const cards = PROJECTS.map((url, i) => {
@@ -78,6 +78,20 @@ try {
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     renderer.setSize(w, h, false);
+
+    // fill the frame: pull the camera in until the portrait is FILL of the frame
+    // height, then fan the cards out until their widest swing lands on the edges.
+    // that swing sits back at RADIUS_Z + BEHIND_MARGIN, so undo its perspective
+    // shrink first or the cards bunch up around the portrait on wide screens.
+    const FILL = 0.76;
+    const visibleH = AVATAR_H / FILL;
+    const dist = visibleH / 2 / Math.tan(camera.fov * Math.PI / 360);
+    camera.position.z = dist;
+    const shrink = dist / (dist + RADIUS_Z + BEHIND_MARGIN);
+    radiusX = THREE.MathUtils.clamp(
+      (visibleH * camera.aspect / 2) * 0.76 / shrink - AVATAR_W / 2,
+      2.9, 8,
+    );
   }
   layout();
   addEventListener('resize', layout);
@@ -111,7 +125,7 @@ try {
       // z stays negative always: cards revolve left-right-behind but never come
       // closer to the camera than the avatar's back face, so they never cover it
       const z = (Math.cos(a) - 1) * RADIUS_Z - BEHIND_MARGIN;
-      card.position.set(Math.sin(a) * RADIUS_X, Math.sin(a * 0.6 + i) * 0.35, z);
+      card.position.set(Math.sin(a) * radiusX, Math.sin(a * 0.6 + i) * 0.35, z);
       card.lookAt(camera.position);
     });
 
