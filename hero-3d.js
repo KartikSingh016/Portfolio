@@ -16,13 +16,15 @@ function coverUV(tex, boxAspect) {
   }
 }
 
-function faceMaterials(url, boxAspect, edgeColor) {
-  const edge = new THREE.MeshStandardMaterial({ color: edgeColor, roughness: 0.85, metalness: 0.05 });
+// transparent is opt-in: only the cards fade, and sorting every surface would
+// cost more than it buys
+function faceMaterials(url, boxAspect, edgeColor, transparent = false) {
+  const edge = new THREE.MeshStandardMaterial({ color: edgeColor, roughness: 0.85, metalness: 0.05, transparent });
   const tex = new THREE.TextureLoader().load(url, t => {
     t.colorSpace = THREE.SRGBColorSpace;
     coverUV(t, boxAspect);
   });
-  const front = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.7, metalness: 0.05 });
+  const front = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.7, metalness: 0.05, transparent });
   // BoxGeometry face order: +x -x +y -y +z -z — photo goes on the +z (front) face
   return [edge, edge, edge, edge, front, edge];
 }
@@ -44,7 +46,8 @@ try {
   rim.position.set(-4, -2, -3);
   scene.add(rim);
 
-  // center portrait — a real box with depth, not a flat plane
+  // center portrait — a real box with depth, not a flat plane. it sits at the
+  // origin, so it always projects to the middle of the canvas
   const AVATAR_ASPECT = 311 / 414;
   const AVATAR_W = 2.4, AVATAR_H = 2.4 / AVATAR_ASPECT, AVATAR_D = 0.16;
   const avatar = new THREE.Mesh(
@@ -53,29 +56,57 @@ try {
   );
   scene.add(avatar);
 
-  // orbiting project cards — same length + width as the avatar model itself
+  // project cards, smaller than the portrait so it stays the subject
   const PROJECTS = [
     'assets/screenshots/offtrail.jpg',
     'assets/screenshots/my-flix.jpg',
     'assets/screenshots/wellbeing.jpg',
     'assets/screenshots/job-tracker.jpg',
   ];
-  const cardGeo = new THREE.BoxGeometry(AVATAR_W, AVATAR_H, 0.12);
-  const RADIUS_X = 3.3;   // lateral swing — clears the avatar's sides
-  const RADIUS_Z = 1.4;   // depth swing, entirely behind the avatar
-  const BEHIND_MARGIN = AVATAR_D / 2 + 0.3; // keeps every point strictly behind the avatar's back face
+  const CARD_SCALE = 0.5;
+  const CARD_W = AVATAR_W * CARD_SCALE, CARD_H = AVATAR_H * CARD_SCALE;
+  const cardGeo = new THREE.BoxGeometry(CARD_W, CARD_H, 0.1);
+
+  // the path is a semicircle, not a full orbit: a card enters level with one
+  // shoulder, arcs away behind the portrait, and leaves past the other. ARC is
+  // the half turn it travels; FADE hides the jump back to the start
+  const ARC = Math.PI;
+  const FADE = 0.55;
+  const ARC_SPEED = 0.26;  // rad/s
+  const DEPTH = 1.9;       // how far behind the portrait the middle of the arc sits
+  const BEHIND_MARGIN = AVATAR_D / 2 + 0.3; // arc ends still clear the portrait's back face
+  let radiusX = 2;         // lateral reach, refit in layout() to the canvas width
+
   const cards = PROJECTS.map((url, i) => {
-    const mesh = new THREE.Mesh(cardGeo, faceMaterials(url, AVATAR_ASPECT, 0xfdfdfd));
-    mesh.userData.angle = (i / PROJECTS.length) * Math.PI * 2;
+    const mesh = new THREE.Mesh(cardGeo, faceMaterials(url, AVATAR_ASPECT, 0xfdfdfd, true));
+    // evenly spaced along the arc, so one enters as another leaves
+    mesh.userData.angle = (i / PROJECTS.length) * ARC;
     scene.add(mesh);
     return mesh;
   });
 
+  const FILL = 0.7; // portrait height as a share of the frame
+
   function layout() {
-    const { width: w, height: h } = wrap.getBoundingClientRect();
+    // clientWidth, not getBoundingClientRect: .orbit carries the .reveal rotateX
+    // transform at load, and a transformed rect reports the wrong size
+    const w = canvas.clientWidth, h = canvas.clientHeight;
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     renderer.setSize(w, h, false);
+
+    // pull the camera in until the portrait fills FILL of the frame height,
+    // then reach the arc out as far as the remaining width allows
+    const visibleH = AVATAR_H / FILL;
+    const dist = visibleH / 2 / Math.tan(camera.fov * Math.PI / 360);
+    camera.position.z = dist;
+    // the ends of the arc are the widest point and sit barely behind the
+    // portrait, so measure the fit against that depth
+    const shrink = dist / (dist + BEHIND_MARGIN);
+    radiusX = Math.max(
+      AVATAR_W / 2 + CARD_W / 4,  // always peeks out past the portrait's edge
+      (visibleH * camera.aspect / 2) * 0.94 / shrink - CARD_W / 2,  // 0.94: never kiss the edge
+    );
   }
   layout();
   addEventListener('resize', layout);
@@ -90,7 +121,6 @@ try {
     wrap.addEventListener('pointerleave', () => { targetX = 0; targetY = 0; });
   }
 
-  const ORBIT_SPEED = 0.18; // rad/s
   let last = performance.now();
 
   function render(now) {
@@ -103,14 +133,22 @@ try {
     avatar.rotation.y = curX * 0.5 + Math.sin(now * 0.00015) * 0.08;
     avatar.rotation.x = -curY * 0.3;
 
-    cards.forEach((card, i) => {
-      card.userData.angle += ORBIT_SPEED * dt;
+    cards.forEach(card => {
+      card.userData.angle = (card.userData.angle + ARC_SPEED * dt) % ARC;
       const a = card.userData.angle;
-      // z stays negative always: cards revolve left-right-behind but never come
-      // closer to the camera than the avatar's back face, so they never cover it
-      const z = (Math.cos(a) - 1) * RADIUS_Z - BEHIND_MARGIN;
-      card.position.set(Math.sin(a) * RADIUS_X, Math.sin(a * 0.6 + i) * 0.35, z);
+      // angle 0 is one side, ARC is the other, and the middle is straight
+      // behind — z never turns positive, so a card cannot cross the face
+      card.position.set(
+        Math.cos(a) * radiusX,
+        Math.sin(a) * 0.35,
+        -Math.sin(a) * DEPTH - BEHIND_MARGIN,
+      );
       card.lookAt(camera.position);
+      // fade and shrink together at both ends so the jump back to the start reads
+      // as a card receding into the distance rather than blinking out
+      const o = THREE.MathUtils.clamp(Math.min(a, ARC - a) / FADE, 0, 1);
+      card.scale.setScalar(0.7 + 0.3 * o);
+      card.material.forEach(m => { m.opacity = o; });
     });
 
     renderer.render(scene, camera);
