@@ -16,15 +16,13 @@ function coverUV(tex, boxAspect) {
   }
 }
 
-// transparent is opt-in: only the cards fade, and sorting every surface would
-// cost more than it buys
-function faceMaterials(url, boxAspect, edgeColor, transparent = false) {
-  const edge = new THREE.MeshStandardMaterial({ color: edgeColor, roughness: 0.85, metalness: 0.05, transparent });
+function faceMaterials(url, boxAspect, edgeColor) {
+  const edge = new THREE.MeshStandardMaterial({ color: edgeColor, roughness: 0.85, metalness: 0.05 });
   const tex = new THREE.TextureLoader().load(url, t => {
     t.colorSpace = THREE.SRGBColorSpace;
     coverUV(t, boxAspect);
   });
-  const front = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.7, metalness: 0.05, transparent });
+  const front = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.7, metalness: 0.05 });
   // BoxGeometry face order: +x -x +y -y +z -z — photo goes on the +z (front) face
   return [edge, edge, edge, edge, front, edge];
 }
@@ -63,29 +61,29 @@ try {
     'assets/screenshots/wellbeing.jpg',
     'assets/screenshots/job-tracker.jpg',
   ];
-  const CARD_SCALE = 0.5;
+  const CARD_SCALE = 0.55;
   const CARD_W = AVATAR_W * CARD_SCALE, CARD_H = AVATAR_H * CARD_SCALE;
   const cardGeo = new THREE.BoxGeometry(CARD_W, CARD_H, 0.1);
 
-  // the path is a semicircle, not a full orbit: a card enters level with one
-  // shoulder, arcs away behind the portrait, and leaves past the other. ARC is
-  // the half turn it travels; FADE hides the jump back to the start
+  // the path is a semicircle, not a full orbit: a card leaves the canvas on one
+  // side, arcs away behind the portrait, and comes back on the other. both ends
+  // of the arc sit off-screen, so the wrap back to the start is never seen and
+  // nothing has to be faded out to hide it
   const ARC = Math.PI;
-  const FADE = 0.55;
   const ARC_SPEED = 0.26;  // rad/s
   const DEPTH = 1.9;       // how far behind the portrait the middle of the arc sits
   const BEHIND_MARGIN = AVATAR_D / 2 + 0.3; // arc ends still clear the portrait's back face
   let radiusX = 2;         // lateral reach, refit in layout() to the canvas width
 
   const cards = PROJECTS.map((url, i) => {
-    const mesh = new THREE.Mesh(cardGeo, faceMaterials(url, AVATAR_ASPECT, 0xfdfdfd, true));
+    const mesh = new THREE.Mesh(cardGeo, faceMaterials(url, AVATAR_ASPECT, 0xfdfdfd));
     // evenly spaced along the arc, so one enters as another leaves
     mesh.userData.angle = (i / PROJECTS.length) * ARC;
     scene.add(mesh);
     return mesh;
   });
 
-  const FILL = 0.7; // portrait height as a share of the frame
+  const FILL = 0.86; // portrait height as a share of the frame
 
   function layout() {
     // clientWidth, not getBoundingClientRect: .orbit carries the .reveal rotateX
@@ -100,16 +98,16 @@ try {
     const visibleH = AVATAR_H / FILL;
     const dist = visibleH / 2 / Math.tan(camera.fov * Math.PI / 360);
     camera.position.z = dist;
-    // the ends of the arc are the widest point and sit barely behind the
-    // portrait, so measure the fit against that depth
+    // reach the arc a full card past each edge, undoing the perspective shrink
+    // at the depth the ends sit at, so a card is fully gone before it wraps
     const shrink = dist / (dist + BEHIND_MARGIN);
-    radiusX = Math.max(
-      AVATAR_W / 2 + CARD_W / 4,  // always peeks out past the portrait's edge
-      (visibleH * camera.aspect / 2) * 0.94 / shrink - CARD_W / 2,  // 0.94: never kiss the edge
-    );
+    radiusX = (visibleH * camera.aspect / 2) / shrink + CARD_W;
   }
   layout();
-  addEventListener('resize', layout);
+  // observe the canvas, not the window: the stage is flex-sized, so it can
+  // change without a resize event (mobile browser chrome sliding away, for one)
+  // and a stale buffer stretches the render
+  new ResizeObserver(layout).observe(canvas);
 
   let targetX = 0, targetY = 0, curX = 0, curY = 0;
   if (!reduceMotion) {
@@ -144,11 +142,6 @@ try {
         -Math.sin(a) * DEPTH - BEHIND_MARGIN,
       );
       card.lookAt(camera.position);
-      // fade and shrink together at both ends so the jump back to the start reads
-      // as a card receding into the distance rather than blinking out
-      const o = THREE.MathUtils.clamp(Math.min(a, ARC - a) / FADE, 0, 1);
-      card.scale.setScalar(0.7 + 0.3 * o);
-      card.material.forEach(m => { m.opacity = o; });
     });
 
     renderer.render(scene, camera);
